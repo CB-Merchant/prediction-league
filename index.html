@@ -157,18 +157,15 @@
     gap:var(--col-gap); align-items:center; position:relative; z-index:1;
   }
   .bar-name{ display:flex; align-items:center; gap:9px; min-width:0; }
-  /* Badge default = the same blue the bar uses, so every non-medal rank's
-     badge always matches its bar — including ranks that haven't shown up yet. */
+  /* Badge base = neutral. A ranked row gets its per-rank color applied inline
+     (see rankColor() in JS) so the badge and its bar always share one color —
+     including ranks that haven't appeared on the board yet. Placeholder rows
+     (unplayed “·”, name-sort “•”) keep this neutral look. */
   .rank{
     flex:0 0 auto; width:24px; height:24px; border-radius:7px; display:grid; place-items:center;
-    font-size:12px; font-weight:700; background:var(--series); color:#fff;
-    font-variant-numeric:tabular-nums; border:1px solid transparent;
+    font-size:12px; font-weight:700; background:var(--panel-2); color:var(--text-2);
+    font-variant-numeric:tabular-nums; border:1px solid var(--border);
   }
-  /* No rank yet (unplayed “·”) or name-sort “•”: neutral, since there's no bar to match. */
-  .rank.none{ background:var(--panel-2); color:var(--text-2); border-color:var(--border); }
-  .rank.g1{ background:#f4c430; color:#3a2f00; border-color:transparent; }
-  .rank.g2{ background:#c7c9cc; color:#2b2d2f; border-color:transparent; }
-  .rank.g3{ background:#cd7f32; color:#2a1400; border-color:transparent; }
   .bar-name .nm{ font-size:13.5px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .track{
     position:relative; height:22px; border-radius:0 4px 4px 0; overflow:hidden;
@@ -179,10 +176,8 @@
     height:100%; width:0; background:var(--series); border-radius:0 4px 4px 0;
     transition:width .6s cubic-bezier(.22,.61,.36,1), background-color .3s ease;
   }
-  /* bar fill matches the rank badge it carries */
-  .fill.g1{ background:#f4c430; }   /* gold   */
-  .fill.g2{ background:#c7c9cc; }   /* silver */
-  .fill.g3{ background:#cd7f32; }   /* bronze */
+  /* Bar fill color is applied inline per rank (see rankColor() in JS) so it
+     always matches that rank's badge. */
   .val{ text-align:right; font-variant-numeric:tabular-nums; }
   .val .pct{ font-size:14px; font-weight:700; }
   .val .hp{ font-size:11px; color:var(--muted); }
@@ -654,6 +649,34 @@ function render(){
   else                           renderManage();
 }
 
+/* Per-rank color: one distinct hue for every rank position, so a rank's number
+   badge and its bar always share the same color. 1/2/3 stay gold/silver/bronze;
+   4 onward each get their own color. Works for any rank, even ranks that haven't
+   appeared on the board yet — beyond the list it cycles deterministically so
+   the same rank always maps to the same color. `fill` = bar/badge background,
+   `ink` = readable text color to sit on that background. */
+const RANK_COLORS = [
+  { fill:'#f4c430', ink:'#3a2f00' }, // 1  gold
+  { fill:'#c7c9cc', ink:'#2b2d2f' }, // 2  silver
+  { fill:'#cd7f32', ink:'#2a1400' }, // 3  bronze
+  { fill:'#2a78d6', ink:'#ffffff' }, // 4  blue
+  { fill:'#7c4dff', ink:'#ffffff' }, // 5  violet
+  { fill:'#e5484d', ink:'#ffffff' }, // 6  red
+  { fill:'#12a594', ink:'#ffffff' }, // 7  teal
+  { fill:'#f76b15', ink:'#2a1400' }, // 8  orange
+  { fill:'#d6409f', ink:'#ffffff' }, // 9  magenta
+  { fill:'#46a758', ink:'#ffffff' }, // 10 green
+  { fill:'#5b6470', ink:'#ffffff' }, // 11 slate
+  { fill:'#0091ff', ink:'#ffffff' }, // 12 sky
+  { fill:'#8e6a3b', ink:'#ffffff' }, // 13 taupe
+];
+function rankColor(rk){
+  // rk is 1-based. Cycle through the palette after rank 3 so any rank has a color.
+  if(rk>=1 && rk<=RANK_COLORS.length) return RANK_COLORS[rk-1];
+  const i = 3 + ((rk-4) % (RANK_COLORS.length-3));  // keep 1-3 reserved, cycle 4+
+  return RANK_COLORS[i];
+}
+
 /* ---- Leaderboard: stat tiles + horizontal bar chart ---- */
 function renderLeaderboard(){
   const S = statsFor();
@@ -717,18 +740,21 @@ function renderLeaderboard(){
   const barsHtml = list.map((r, i)=>{
     const pct = Math.round(r.acc*100);
     const rk = ranks[i];
-    const medal = perf && rk && rk<=3 && tieVal(r)>0 ? `g${rk}` : '';
-    // A real rank gets blue-or-medal; a placeholder (·/•) stays neutral.
-    const hasRank = perf && rk;
-    const badgeCls = medal || (hasRank ? '' : 'none');
+    // A real rank (played, and sorted by a performance metric) gets its own
+    // color on BOTH the badge and the bar. Placeholders (·/•) stay neutral and
+    // get no inline color, so the CSS default shows through.
+    const hasRank = perf && rk && tieVal(r)>0;
+    const c = hasRank ? rankColor(rk) : null;
+    const badgeStyle = c ? ` style="background:${c.fill};color:${c.ink};border-color:transparent"` : '';
+    const fillStyle  = c ? `width:0;background:${c.fill}` : 'width:0';
     const rankTxt = !perf ? '•' : (rk || '·');
     const title = `${r.name} — ${r.hits} correct of ${r.played} played (${pct}% accuracy)`;
     return `<div class="bar-row" style="--i:${i}" title="${esc(title)}">
       <div class="bar-name">
-        <span class="rank ${badgeCls}">${rankTxt}</span>
+        <span class="rank"${badgeStyle}>${rankTxt}</span>
         <span class="nm">${esc(r.name)}</span>
       </div>
-      <div class="track"><div class="fill ${medal}" data-w="${pct}" style="width:0"></div></div>
+      <div class="track"><div class="fill" data-w="${pct}" style="${fillStyle}"></div></div>
       <div class="val"><div class="pct">${pct}%</div><div class="hp">${r.hits}/${r.played}</div></div>
     </div>`;
   }).join('');
