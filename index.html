@@ -157,11 +157,15 @@
     gap:var(--col-gap); align-items:center; position:relative; z-index:1;
   }
   .bar-name{ display:flex; align-items:center; gap:9px; min-width:0; }
+  /* Badge default = the same blue the bar uses, so every non-medal rank's
+     badge always matches its bar — including ranks that haven't shown up yet. */
   .rank{
     flex:0 0 auto; width:24px; height:24px; border-radius:7px; display:grid; place-items:center;
-    font-size:12px; font-weight:700; background:var(--panel-2); color:var(--text-2);
-    font-variant-numeric:tabular-nums; border:1px solid var(--border);
+    font-size:12px; font-weight:700; background:var(--series); color:#fff;
+    font-variant-numeric:tabular-nums; border:1px solid transparent;
   }
+  /* No rank yet (unplayed “·”) or name-sort “•”: neutral, since there's no bar to match. */
+  .rank.none{ background:var(--panel-2); color:var(--text-2); border-color:var(--border); }
   .rank.g1{ background:#f4c430; color:#3a2f00; border-color:transparent; }
   .rank.g2{ background:#c7c9cc; color:#2b2d2f; border-color:transparent; }
   .rank.g3{ background:#cd7f32; color:#2a1400; border-color:transparent; }
@@ -714,11 +718,14 @@ function renderLeaderboard(){
     const pct = Math.round(r.acc*100);
     const rk = ranks[i];
     const medal = perf && rk && rk<=3 && tieVal(r)>0 ? `g${rk}` : '';
+    // A real rank gets blue-or-medal; a placeholder (·/•) stays neutral.
+    const hasRank = perf && rk;
+    const badgeCls = medal || (hasRank ? '' : 'none');
     const rankTxt = !perf ? '•' : (rk || '·');
     const title = `${r.name} — ${r.hits} correct of ${r.played} played (${pct}% accuracy)`;
     return `<div class="bar-row" style="--i:${i}" title="${esc(title)}">
       <div class="bar-name">
-        <span class="rank ${medal}">${rankTxt}</span>
+        <span class="rank ${badgeCls}">${rankTxt}</span>
         <span class="nm">${esc(r.name)}</span>
       </div>
       <div class="track"><div class="fill ${medal}" data-w="${pct}" style="width:0"></div></div>
