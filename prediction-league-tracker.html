@@ -1,0 +1,905 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Prediction League · Tracker</title>
+<!--
+  PREDICTION LEAGUE TRACKER — single self-contained file.
+  • No internet needed: no CDN links, no <script src>, no chart library.
+    The bar chart is drawn with plain HTML/CSS.
+  • Everything you type (names + weekly results) is saved in THIS browser
+    (localStorage). Use Manage → Export to keep a backup file.
+  • Concept: 13 friends predict games each of 38 game weeks. You mark each
+    friend right (✓) or wrong (✗) per week. Each bar = that friend's
+    accuracy so far (correct ÷ weeks played).
+-->
+<style>
+  /* ---------- Colour system (validated data-viz palette) ---------- */
+  :root{
+    color-scheme: light;
+    --bg:        #f9f9f7;   /* page */
+    --panel:     #ffffff;   /* cards */
+    --panel-2:   #f2f2ee;   /* subtle inset */
+    --text:      #0b0b0b;   /* primary ink */
+    --text-2:    #52514e;   /* secondary ink */
+    --muted:     #898781;   /* labels */
+    --grid:      #e1e0d9;   /* gridlines */
+    --baseline:  #c3c2b7;
+    --border:    rgba(11,11,11,0.10);
+    --track:     rgba(11,11,11,0.05);
+    --series:    #2a78d6;   /* bar fill (single hue) */
+    --good:      #0ca30c;   /* ✓ hit  (status) */
+    --bad:       #d03b3b;   /* ✗ miss (status) */
+    --shadow:    0 1px 2px rgba(11,11,11,.05), 0 8px 24px rgba(11,11,11,.05);
+    /* chart layout widths (kept here so bars + axis line up) */
+    --label-w: 190px;
+    --val-w:   84px;
+    --col-gap: 12px;
+  }
+  html[data-theme="dark"]{
+    color-scheme: dark;
+    --bg:        #0d0d0d;
+    --panel:     #1a1a19;
+    --panel-2:   #232322;
+    --text:      #ffffff;
+    --text-2:    #c3c2b7;
+    --muted:     #898781;
+    --grid:      #2c2c2a;
+    --baseline:  #383835;
+    --border:    rgba(255,255,255,0.10);
+    --track:     rgba(255,255,255,0.06);
+    --series:    #3987e5;
+    --good:      #0ca30c;
+    --bad:       #d03b3b;
+    --shadow:    0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.45);
+  }
+
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; }
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    line-height:1.45;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{ max-width:1040px; margin:0 auto; padding:20px 18px 60px; }
+
+  /* ---------- Header ---------- */
+  header.app{
+    display:flex; align-items:center; gap:16px; flex-wrap:wrap;
+    padding:18px 20px; margin-bottom:18px;
+    background:
+      radial-gradient(120% 160% at 0% 0%, rgba(58,135,229,.18), transparent 60%),
+      var(--panel);
+    border:1px solid var(--border); border-radius:16px; box-shadow:var(--shadow);
+  }
+  .brand{ display:flex; align-items:center; gap:12px; }
+  .badge{
+    width:40px; height:40px; border-radius:11px; flex:0 0 auto;
+    display:grid; place-items:center; font-size:20px;
+    background:linear-gradient(145deg, var(--series), #1c5cab); color:#fff;
+    box-shadow:0 4px 14px rgba(42,120,214,.35);
+  }
+  html[data-theme="dark"] .badge{ background:linear-gradient(145deg, var(--series), #184f95); }
+  .titles h1{ font-size:19px; margin:0; letter-spacing:.2px; }
+  .titles p{ margin:2px 0 0; color:var(--muted); font-size:12.5px; }
+  .spacer{ flex:1 1 auto; }
+  .season-edit{
+    background:transparent; border:1px dashed transparent; color:var(--text);
+    font:inherit; font-weight:600; font-size:13px; padding:4px 8px; border-radius:8px;
+    min-width:120px;
+  }
+  .season-edit:hover{ border-color:var(--border); }
+  .season-edit:focus{ outline:none; border-color:var(--series); border-style:solid; background:var(--panel-2); }
+  .theme-btn{
+    display:grid; place-items:center; width:38px; height:38px; cursor:pointer;
+    background:var(--panel-2); border:1px solid var(--border); border-radius:10px;
+    color:var(--text); font-size:16px;
+  }
+  .theme-btn:hover{ border-color:var(--series); }
+
+  /* ---------- Tabs ---------- */
+  nav.tabs{ display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px; }
+  .tab{
+    appearance:none; cursor:pointer; font:inherit; font-weight:600; font-size:13px;
+    padding:9px 15px; border-radius:999px; color:var(--text-2);
+    background:var(--panel); border:1px solid var(--border);
+  }
+  .tab:hover{ color:var(--text); border-color:var(--baseline); }
+  .tab[aria-selected="true"]{ background:var(--series); color:#fff; border-color:transparent; }
+
+  /* ---------- Cards ---------- */
+  .card{
+    background:var(--panel); border:1px solid var(--border); border-radius:16px;
+    box-shadow:var(--shadow); padding:18px 18px; margin-bottom:16px;
+  }
+  .card h2{ font-size:15px; margin:0 0 2px; }
+  .card .sub{ color:var(--muted); font-size:12.5px; margin:0 0 14px; }
+  .row-head{ display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin-bottom:14px; }
+  .row-head .spacer{ flex:1; }
+
+  /* ---------- Stat tiles ---------- */
+  .tiles{ display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:16px; }
+  .tile{ background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:14px 15px; box-shadow:var(--shadow); }
+  .tile .k{ color:var(--muted); font-size:11.5px; text-transform:uppercase; letter-spacing:.6px; }
+  .tile .v{ font-size:26px; font-weight:650; margin-top:4px; letter-spacing:.3px; }
+  .tile .v small{ font-size:14px; color:var(--muted); font-weight:500; }
+  .tile.hero{ grid-column:1/-1; background:
+      radial-gradient(120% 200% at 100% 0%, rgba(58,135,229,.16), transparent 55%), var(--panel); }
+  .tile.hero .v{ font-size:30px; }
+  .tile.hero .name{ color:var(--series); }
+
+  /* ---------- Bar chart ---------- */
+  .chart{ margin-top:4px; }
+  .bars{ position:relative; display:flex; flex-direction:column; gap:8px; }
+  .bar-row{
+    display:grid; grid-template-columns:var(--label-w) 1fr var(--val-w);
+    gap:var(--col-gap); align-items:center; position:relative; z-index:1;
+  }
+  .bar-name{ display:flex; align-items:center; gap:9px; min-width:0; }
+  .rank{
+    flex:0 0 auto; width:24px; height:24px; border-radius:7px; display:grid; place-items:center;
+    font-size:12px; font-weight:700; background:var(--panel-2); color:var(--text-2);
+    font-variant-numeric:tabular-nums; border:1px solid var(--border);
+  }
+  .rank.g1{ background:#f4c430; color:#3a2f00; border-color:transparent; }
+  .rank.g2{ background:#c7c9cc; color:#2b2d2f; border-color:transparent; }
+  .rank.g3{ background:#cd7f32; color:#2a1400; border-color:transparent; }
+  .bar-name .nm{ font-size:13.5px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .track{
+    position:relative; height:22px; border-radius:0 4px 4px 0; overflow:hidden;
+    background-color:var(--track);
+    background-image:repeating-linear-gradient(to right, var(--grid) 0 1px, transparent 1px 25%);
+  }
+  .fill{
+    height:100%; width:0; background:var(--series); border-radius:0 4px 4px 0;
+    transition:width .6s cubic-bezier(.22,.61,.36,1), background-color .3s ease;
+  }
+  /* bar fill matches the rank badge it carries */
+  .fill.g1{ background:#f4c430; }   /* gold   */
+  .fill.g2{ background:#c7c9cc; }   /* silver */
+  .fill.g3{ background:#cd7f32; }   /* bronze */
+  .val{ text-align:right; font-variant-numeric:tabular-nums; }
+  .val .pct{ font-size:14px; font-weight:700; }
+  .val .hp{ font-size:11px; color:var(--muted); }
+  .chart-axis{
+    display:grid; grid-template-columns:var(--label-w) 1fr var(--val-w);
+    gap:var(--col-gap); margin-top:10px;
+  }
+  .chart-axis .ticks{ display:flex; justify-content:space-between; color:var(--muted); font-size:11px; font-variant-numeric:tabular-nums; }
+  .empty{ color:var(--muted); font-size:13px; text-align:center; padding:26px 10px; }
+
+  /* ---------- Motion / reactive polish ---------- */
+  .tab, .tile, .btn, .icon-btn, .theme-btn, .cbtn, .g-rm, .rm,
+  select, .season-edit, table.grid td.cell, .rank{
+    transition: background-color .18s ease, border-color .18s ease, color .18s ease,
+                box-shadow .22s ease, transform .12s cubic-bezier(.22,.61,.36,1);
+  }
+  .tab:hover{ transform:translateY(-1px); }
+  .tab:active{ transform:translateY(0) scale(.96); }
+  .tile{ will-change:transform; }
+  .tile:hover{ transform:translateY(-2px); box-shadow:0 8px 22px rgba(0,0,0,.12), var(--shadow); }
+  .btn:hover, .theme-btn:hover{ transform:translateY(-1px); }
+  .btn:active, .icon-btn:active, .cbtn:active, .theme-btn:active, .g-rm:active, .rm:active{ transform:scale(.92); }
+  .rank{ transition:transform .18s cubic-bezier(.34,1.56,.64,1); }
+  .bar-row:hover .rank{ transform:scale(1.12) rotate(-4deg); }
+
+  /* staggered entrance for the leaderboard bars */
+  .bar-row{ animation:rowIn .5s cubic-bezier(.22,.61,.36,1) both; animation-delay:calc(var(--i,0) * 45ms); }
+  @keyframes rowIn{ from{ opacity:0; transform:translateY(7px); } to{ opacity:1; transform:none; } }
+
+  /* content swap when switching tabs (only fires on tab change) */
+  #view.swap{ animation:viewSwap .34s cubic-bezier(.22,.61,.36,1); }
+  @keyframes viewSwap{ from{ opacity:0; transform:translateY(8px); } to{ opacity:1; transform:none; } }
+
+  @media (prefers-reduced-motion: reduce){
+    *, *::before, *::after{
+      animation-duration:.001ms !important; animation-delay:0 !important;
+      transition-duration:.001ms !important;
+    }
+    .fill{ transition:none !important; }
+  }
+
+  /* ---------- Record week ---------- */
+  .weeknav{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .weeknav .stepper{ display:flex; align-items:center; gap:6px; }
+  .icon-btn{
+    cursor:pointer; font:inherit; width:34px; height:34px; border-radius:9px;
+    background:var(--panel-2); border:1px solid var(--border); color:var(--text); font-size:15px;
+  }
+  .icon-btn:hover{ border-color:var(--series); }
+  .icon-btn:disabled{ opacity:.4; cursor:default; }
+  select, input[type="text"], input[type="number"]{
+    font:inherit; color:var(--text); background:var(--panel-2);
+    border:1px solid var(--border); border-radius:9px; padding:8px 10px;
+  }
+  select:focus, input:focus{ outline:none; border-color:var(--series); }
+  .weekpill{ font-weight:700; font-size:15px; }
+  .weekmeta{ color:var(--muted); font-size:12.5px; }
+
+  .rec-list{ display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:10px; margin-top:6px; }
+  .rec-item{
+    display:flex; align-items:center; gap:10px; padding:9px 11px;
+    background:var(--panel-2); border:1px solid var(--border); border-radius:11px;
+  }
+  .rec-item .nm{ flex:1; min-width:0; font-weight:600; font-size:13.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .choice{ display:flex; gap:6px; flex:0 0 auto; }
+  .cbtn{
+    cursor:pointer; font:inherit; font-weight:700; font-size:13px; width:38px; height:34px;
+    border-radius:9px; border:1px solid var(--border); background:var(--panel); color:var(--muted);
+    display:grid; place-items:center;
+  }
+  .cbtn:hover{ border-color:var(--baseline); color:var(--text); }
+  .cbtn.hit.on{ background:var(--good); border-color:transparent; color:#fff; }
+  .cbtn.miss.on{ background:var(--bad); border-color:transparent; color:#fff; }
+
+  /* ---------- Grid table ---------- */
+  .scrollx{ overflow-x:auto; border:1px solid var(--border); border-radius:12px; }
+  table.grid{ border-collapse:separate; border-spacing:0; width:max-content; font-size:12px; }
+  table.grid th, table.grid td{ padding:0; text-align:center; }
+  table.grid thead th{
+    position:sticky; top:0; background:var(--panel); z-index:2;
+    color:var(--muted); font-weight:600; font-variant-numeric:tabular-nums;
+    height:30px; min-width:28px; border-bottom:1px solid var(--border);
+  }
+  table.grid td.name-cell, table.grid th.name-cell{
+    position:sticky; left:0; z-index:3; background:var(--panel);
+    text-align:left; padding:0 12px; min-width:150px; font-weight:600; font-size:12.5px;
+    border-right:1px solid var(--border); white-space:nowrap;
+  }
+  table.grid thead th.name-cell{ z-index:4; }
+  table.grid tbody tr{ height:30px; }
+  table.grid td.cell{ min-width:28px; border-bottom:1px solid var(--grid); border-right:1px solid var(--grid); cursor:pointer; }
+  table.grid td.cell .dot{ display:inline-grid; place-items:center; width:20px; height:20px; border-radius:6px; margin:auto; font-size:12px; font-weight:700; }
+  table.grid td.cell.hit .dot{ background:var(--good); color:#fff; }
+  table.grid td.cell.miss .dot{ background:var(--bad); color:#fff; }
+  table.grid td.cell:hover{ outline:2px solid var(--series); outline-offset:-2px; }
+  table.grid td.tot{ min-width:64px; padding:0 10px; text-align:right; font-variant-numeric:tabular-nums; color:var(--text-2); border-bottom:1px solid var(--grid); background:var(--panel-2); font-weight:600; }
+  table.grid th.tot{ min-width:64px; padding:0 10px; text-align:right; background:var(--panel-2); }
+
+  .legend{ display:flex; gap:16px; flex-wrap:wrap; color:var(--muted); font-size:12px; margin-top:10px; align-items:center; }
+  .legend .k{ display:inline-flex; align-items:center; gap:6px; }
+  .legend .sw{ width:14px; height:14px; border-radius:4px; display:inline-block; }
+
+  /* ---------- Games played ---------- */
+  .game-list{ display:grid; gap:10px; margin-top:6px; }
+  .game-row{ display:flex; align-items:center; gap:10px; padding:9px 11px; background:var(--panel-2); border:1px solid var(--border); border-radius:11px; }
+  .game-row .g-label{ flex:1; min-width:0; font-weight:600; font-size:13.5px; }
+  .game-row .g-rm{ cursor:pointer; flex:0 0 auto; border:1px solid var(--border); background:var(--panel); color:var(--muted); border-radius:8px; width:30px; height:34px; font-size:15px; }
+  .game-row .g-rm:hover{ color:var(--bad); border-color:var(--bad); }
+  .game-summary{ font-size:13px; color:var(--text-2); font-variant-numeric:tabular-nums; }
+
+  /* ---------- Manage ---------- */
+  .field{ display:flex; flex-direction:column; gap:5px; margin-bottom:14px; }
+  .field label{ font-size:12px; color:var(--muted); font-weight:600; }
+  .players-edit{ display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:10px; }
+  .pe-row{ display:flex; align-items:center; gap:8px; }
+  .pe-row .n{ width:22px; text-align:right; color:var(--muted); font-size:12px; font-variant-numeric:tabular-nums; }
+  .pe-row input{ flex:1; }
+  .pe-row .rm{ cursor:pointer; border:1px solid var(--border); background:var(--panel-2); color:var(--muted); border-radius:8px; width:30px; height:34px; font-size:15px; }
+  .pe-row .rm:hover{ color:var(--bad); border-color:var(--bad); }
+  .btns{ display:flex; gap:10px; flex-wrap:wrap; margin-top:6px; }
+  .btn{
+    cursor:pointer; font:inherit; font-weight:600; font-size:13px; padding:9px 15px; border-radius:10px;
+    border:1px solid var(--border); background:var(--panel-2); color:var(--text);
+  }
+  .btn:hover{ border-color:var(--series); }
+  .btn.primary{ background:var(--series); color:#fff; border-color:transparent; }
+  .btn.ghost{ background:transparent; }
+  .btn.danger{ color:var(--bad); border-color:var(--bad); background:transparent; }
+  .btn.danger:hover{ background:var(--bad); color:#fff; }
+  .hint{ color:var(--muted); font-size:12px; margin-top:8px; }
+  .divider{ height:1px; background:var(--border); margin:18px 0; }
+  .danger-zone{ border:1px solid var(--bad); border-radius:12px; padding:14px; }
+  .danger-zone h3{ margin:0 0 6px; font-size:13px; color:var(--bad); }
+
+  footer.app{ color:var(--muted); font-size:11.5px; text-align:center; margin-top:22px; line-height:1.7; }
+
+  @media (max-width:640px){
+    :root{ --label-w:118px; --val-w:64px; --col-gap:8px; }
+    .bar-name .nm{ font-size:12.5px; }
+    .tile .v{ font-size:22px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="app">
+    <div class="brand">
+      <div class="badge">⚽</div>
+      <div class="titles">
+        <h1>Prediction League</h1>
+        <p>Weekly predictions · 13 players · 38 game weeks</p>
+      </div>
+    </div>
+    <div class="spacer"></div>
+    <input class="season-edit" id="seasonInput" type="text" aria-label="Season name" />
+    <button class="theme-btn" id="themeBtn" title="Toggle light / dark" aria-label="Toggle theme">🌙</button>
+  </header>
+
+  <nav class="tabs" id="tabs" role="tablist">
+    <button class="tab" data-action="tab" data-tab="leaderboard" role="tab">🏆 Leaderboard</button>
+    <button class="tab" data-action="tab" data-tab="record" role="tab">✍️ Record week</button>
+    <button class="tab" data-action="tab" data-tab="games" role="tab">⚽ Games played</button>
+    <button class="tab" data-action="tab" data-tab="grid" role="tab">🗓️ Full grid</button>
+    <button class="tab" data-action="tab" data-tab="manage" role="tab">⚙️ Manage</button>
+  </nav>
+
+  <main id="view"><!-- rendered by JS --></main>
+
+  <footer class="app">
+    Self-contained page — works offline, nothing loaded from the internet.<br/>
+    Your data is saved in this browser only. Use <b>Manage → Export</b> to keep a backup file.
+  </footer>
+</div>
+
+<script>
+/* ============================================================
+   1) STATE  —  the single place your data lives
+   ============================================================ */
+const STORAGE_KEY = 'predictionLeague.v1';
+
+function defaultState(){
+  return {
+    season: '2025/26 Season',
+    totalWeeks: 38,
+    players: ['Ben','Asaba','Chibyke','Cepo','Edmund','Chris','Onazi','Chima','Yungeee','Wizzy','Berchman','Dominic','Pascal'],
+    // results[playerIndex][weekIndex] = 'hit' | 'miss' | null
+    results: Array.from({length:13}, ()=> Array(38).fill(null)),
+    games: Array.from({length:38}, ()=> []),   // per week: list of {label, result:'hit'|'miss'|null} — games played that week
+    theme: 'dark',
+    sort: 'accuracy'
+  };
+}
+
+/* Make sure a loaded state has the right shape (pads/truncates safely). */
+function normalize(s){
+  const d = defaultState();
+  if(!s || typeof s!=='object') return d;
+  const st = {
+    season: typeof s.season==='string' ? s.season : d.season,
+    totalWeeks: clampInt(s.totalWeeks, 1, 60, 38),
+    players: Array.isArray(s.players) && s.players.length ? s.players.map(x=> String(x)) : d.players,
+    results: [],
+    theme: (s.theme==='light'||s.theme==='dark') ? s.theme : 'dark',
+    sort: ['accuracy','hits','played','name'].includes(s.sort) ? s.sort : 'accuracy'
+  };
+  const W = st.totalWeeks;
+  st.results = st.players.map((_, p)=>{
+    const row = (Array.isArray(s.results) && Array.isArray(s.results[p])) ? s.results[p] : [];
+    const out = Array(W).fill(null);
+    for(let w=0; w<W; w++){
+      const v = row[w];
+      out[w] = (v==='hit'||v==='miss') ? v : null;
+    }
+    return out;
+  });
+  st.games = Array.from({length:W}, (_,w)=>{
+    const raw = Array.isArray(s.games) ? s.games[w] : undefined;
+    const arr = Array.isArray(raw) ? raw
+              : (typeof raw==='string' && raw.trim()) ? [{label:raw, result:null}]   // migrate old single-string format
+              : [];
+    return arr.map(g=>({
+      label: (g && typeof g.label==='string') ? g.label : '',
+      result: (g && (g.result==='hit'||g.result==='miss')) ? g.result : null
+    }));
+  });
+  return st;
+}
+function clampInt(v, min, max, dflt){
+  v = parseInt(v,10);
+  if(isNaN(v)) return dflt;
+  return Math.max(min, Math.min(max, v));
+}
+
+let state = normalize(load());
+let currentTab = 'leaderboard';
+let activeWeek = firstUnfinishedWeek();   // 0-based week index for the Record tab
+
+function load(){
+  try{ return JSON.parse(localStorage.getItem(STORAGE_KEY)); }
+  catch(e){ return null; }
+}
+function save(){
+  try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+  catch(e){ /* storage full/blocked — page still works for this session */ }
+}
+
+/* ============================================================
+   2) HELPERS
+   ============================================================ */
+function esc(s){ return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+function statsFor(){
+  return state.players.map((name, p)=>{
+    let hits=0, played=0;
+    const row = state.results[p];
+    for(let w=0; w<state.totalWeeks; w++){
+      if(row[w]==='hit'){ hits++; played++; }
+      else if(row[w]==='miss'){ played++; }
+    }
+    const acc = played ? hits/played : 0;
+    return { p, name, hits, played, misses: played-hits, acc };
+  });
+}
+function ranked(list, sort){
+  const a = [...list];
+  const byName = (x,y)=> x.name.localeCompare(y.name, undefined, {sensitivity:'base'});
+  if(sort==='hits')        a.sort((x,y)=> y.hits-x.hits || y.acc-x.acc || y.played-x.played || byName(x,y));
+  else if(sort==='played') a.sort((x,y)=> y.played-x.played || y.acc-x.acc || byName(x,y));
+  else if(sort==='name')   a.sort(byName);
+  else                     a.sort((x,y)=> y.acc-x.acc || y.hits-x.hits || y.played-x.played || byName(x,y)); // accuracy
+  return a;
+}
+function weeksRecorded(){
+  let n=0;
+  for(let w=0; w<state.totalWeeks; w++){
+    for(let p=0; p<state.players.length; p++){
+      if(state.results[p][w]){ n++; break; }
+    }
+  }
+  return n;
+}
+function firstUnfinishedWeek(){
+  const P = (state?state.players.length:0);
+  for(let w=0; w<(state?state.totalWeeks:38); w++){
+    let full=true;
+    for(let p=0; p<P; p++){ if(!state.results[p][w]){ full=false; break; } }
+    if(!full) return w;
+  }
+  return 0;
+}
+
+/* ============================================================
+   3) RENDER
+   ============================================================ */
+const view = document.getElementById('view');
+
+function render(){
+  // header + tabs chrome
+  document.getElementById('seasonInput').value = state.season;
+  document.documentElement.setAttribute('data-theme', state.theme);
+  document.getElementById('themeBtn').textContent = state.theme==='dark' ? '🌙' : '☀️';
+  document.querySelectorAll('.tab').forEach(t=>{
+    t.setAttribute('aria-selected', t.dataset.tab===currentTab ? 'true' : 'false');
+  });
+  // body
+  if(currentTab==='leaderboard') renderLeaderboard();
+  else if(currentTab==='record') renderRecord();
+  else if(currentTab==='games')  renderGames();
+  else if(currentTab==='grid')   renderGrid();
+  else                           renderManage();
+}
+
+/* ---- Leaderboard: stat tiles + horizontal bar chart ---- */
+function renderLeaderboard(){
+  const S = statsFor();
+  const list = ranked(S, state.sort);
+  const perf = state.sort!=='name';
+
+  const totalHits = S.reduce((a,b)=>a+b.hits,0);
+  const totalPlayed = S.reduce((a,b)=>a+b.played,0);
+  const overall = totalPlayed ? Math.round(100*totalHits/totalPlayed) : 0;
+  // games log: overall hit rate across every game marked hit / miss
+  let gTot=0, gHit=0;
+  for(let w=0; w<state.totalWeeks; w++) for(const g of (state.games[w]||[])){
+    if(g.result==='hit'){ gHit++; gTot++; } else if(g.result==='miss'){ gTot++; }
+  }
+  const gRate = gTot ? Math.round(100*gHit/gTot) : 0;
+  // value used to detect ties for the current sort (what the viewer sees)
+  const tieVal = (r)=> state.sort==='hits' ? r.hits
+                     : state.sort==='played' ? r.played
+                     : Math.round(r.acc*100);            // accuracy (default)
+  // Joint ranks (1,1,2,3…): everyone on the same value shares a rank & medal,
+  // so several people on 100% are all joint-1st. Unplayed players get no rank.
+  let _rank = 0, _prev = null;
+  const ranks = list.map((r)=>{
+    if(r.played===0) return null;
+    const v = tieVal(r);
+    if(_prev===null || v!==_prev){ _rank++; _prev = v; }
+    return _rank;
+  });
+
+  // Hero: name EVERY player tied at the top accuracy, not just one.
+  const playedList = ranked(S.filter(x=>x.played>0), 'accuracy');
+  const maxPct = playedList.length ? Math.round(playedList[0].acc*100) : 0;
+  const leaders = playedList.filter(x=> Math.round(x.acc*100)===maxPct);
+  let heroHtml;
+  if(leaders.length && maxPct>0){
+    const nm = leaders.map(x=>x.name);
+    const nameStr = nm.length===1 ? nm[0]
+      : nm.length<=3 ? nm.slice(0,-1).join(', ') + ' & ' + nm[nm.length-1]
+      : nm.length + ' players';
+    const tail = leaders.length===1
+      ? ` <small>· ${leaders[0].hits}/${leaders[0].played} weeks</small>`
+      : ` <small>· ${leaders.length}-way tie</small>`;
+    heroHtml = `<div class="k">Current leader${leaders.length>1?'s':''} (by accuracy)</div>
+       <div class="v"><span class="name">${esc(nameStr)}</span> · ${maxPct}%${tail}</div>`;
+  } else if(playedList.length){
+    heroHtml = `<div class="k">Current leader</div>
+       <div class="v">No leader yet <small>· no correct predictions recorded yet</small></div>`;
+  } else {
+    heroHtml = `<div class="k">Current leader</div>
+       <div class="v">No results yet <small>· go to “Record week” to log week 1</small></div>`;
+  }
+
+  const tiles = `
+    <div class="tiles">
+      <div class="tile hero">${heroHtml}</div>
+      <div class="tile"><div class="k">Season progress</div><div class="v">${weeksRecorded()}<small> / ${state.totalWeeks} weeks</small></div></div>
+      <div class="tile"><div class="k">Prediction hit rate</div><div class="v">${overall}<small>%</small></div></div>
+      <div class="tile"><div class="k">Games hit rate</div><div class="v">${gRate}<small>% · ${gHit}/${gTot} games</small></div></div>
+    </div>`;
+
+  const barsHtml = list.map((r, i)=>{
+    const pct = Math.round(r.acc*100);
+    const rk = ranks[i];
+    const medal = perf && rk && rk<=3 && tieVal(r)>0 ? `g${rk}` : '';
+    const rankTxt = !perf ? '•' : (rk || '·');
+    const title = `${r.name} — ${r.hits} correct of ${r.played} played (${pct}% accuracy)`;
+    return `<div class="bar-row" style="--i:${i}" title="${esc(title)}">
+      <div class="bar-name">
+        <span class="rank ${medal}">${rankTxt}</span>
+        <span class="nm">${esc(r.name)}</span>
+      </div>
+      <div class="track"><div class="fill ${medal}" data-w="${pct}" style="width:0"></div></div>
+      <div class="val"><div class="pct">${pct}%</div><div class="hp">${r.hits}/${r.played}</div></div>
+    </div>`;
+  }).join('');
+
+  view.innerHTML = tiles + `
+    <div class="card">
+      <div class="row-head">
+        <div>
+          <h2>Accuracy leaderboard</h2>
+          <p class="sub">Bar length = correct ÷ weeks played, so far.</p>
+        </div>
+        <div class="spacer"></div>
+        <label class="weekmeta" for="sortSel">Sort:&nbsp;</label>
+        <select id="sortSel" data-action="sort">
+          <option value="accuracy">Accuracy</option>
+          <option value="hits">Correct (hits)</option>
+          <option value="played">Weeks played</option>
+          <option value="name">Name (A–Z)</option>
+        </select>
+      </div>
+      <div class="chart">
+        <div class="bars">${barsHtml || '<div class="empty">No players yet.</div>'}</div>
+        <div class="chart-axis">
+          <div></div>
+          <div class="ticks"><span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span></div>
+          <div></div>
+        </div>
+      </div>
+    </div>`;
+  const sel = document.getElementById('sortSel');
+  if(sel) sel.value = state.sort;
+  // grow the bars from 0 → target so each render animates
+  requestAnimationFrame(()=>{
+    view.querySelectorAll('.fill[data-w]').forEach(f=>{ f.style.width = f.dataset.w + '%'; });
+  });
+}
+
+/* ---- Record week: pick a week, tap ✓ / ✗ for each player ---- */
+function renderRecord(){
+  const W = activeWeek;                       // 0-based
+  const P = state.players.length;
+  let hit=0, miss=0;
+  for(let p=0;p<P;p++){ const v=state.results[p][W]; if(v==='hit') hit++; else if(v==='miss') miss++; }
+  const done = hit+miss;
+
+  const weekOpts = Array.from({length:state.totalWeeks}, (_,i)=>
+    `<option value="${i}" ${i===W?'selected':''}>Week ${i+1}</option>`).join('');
+
+  const items = state.players.map((name,p)=>{
+    const v = state.results[p][W];
+    return `<div class="rec-item">
+      <span class="nm" title="${esc(name)}">${esc(name)}</span>
+      <div class="choice">
+        <button class="cbtn hit ${v==='hit'?'on':''}"  data-action="setcell" data-p="${p}" data-w="${W}" data-val="hit"  aria-label="${esc(name)} correct">✓</button>
+        <button class="cbtn miss ${v==='miss'?'on':''}" data-action="setcell" data-p="${p}" data-w="${W}" data-val="miss" aria-label="${esc(name)} wrong">✗</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  view.innerHTML = `
+    <div class="card">
+      <div class="row-head weeknav">
+        <div class="stepper">
+          <button class="icon-btn" data-action="week" data-dir="-1" ${W<=0?'disabled':''} aria-label="Previous week">‹</button>
+          <select id="weekSel" data-action="weeksel" aria-label="Choose week">${weekOpts}</select>
+          <button class="icon-btn" data-action="week" data-dir="1" ${W>=state.totalWeeks-1?'disabled':''} aria-label="Next week">›</button>
+        </div>
+        <div>
+          <span class="weekpill">Week ${W+1}</span>
+          <span class="weekmeta">· ${done}/${P} recorded · <b style="color:var(--good)">${hit}✓</b> <b style="color:var(--bad)">${miss}✗</b></span>
+        </div>
+        <div class="spacer"></div>
+        <button class="btn ghost" data-action="clearweek">Clear this week</button>
+      </div>
+      <p class="sub" style="margin-top:-4px">Tap <b style="color:var(--good)">✓</b> if they got it right, <b style="color:var(--bad)">✗</b> if wrong. Tap again to un-set.</p>
+      <div class="rec-list">${items}</div>
+    </div>`;
+}
+
+/* ---- Games played: log the games each week + mark if the game hit or missed ---- */
+function renderGames(){
+  const W = activeWeek;                        // shares the "current week" with Record
+  const gamesW = state.games[W] || [];
+
+  // season totals across every week
+  let totGames=0, totHit=0, totMiss=0;
+  for(let w=0; w<state.totalWeeks; w++){
+    for(const g of (state.games[w]||[])){
+      totGames++;
+      if(g.result==='hit') totHit++;
+      else if(g.result==='miss') totMiss++;
+    }
+  }
+
+  const weekOpts = Array.from({length:state.totalWeeks}, (_,i)=>
+    `<option value="${i}" ${i===W?'selected':''}>Week ${i+1}</option>`).join('');
+
+  const rows = gamesW.map((g,i)=>`
+    <div class="game-row">
+      <span class="g-label">Game</span>
+      <div class="choice">
+        <button class="cbtn hit ${g.result==='hit'?'on':''}"  data-action="gameresult" data-w="${W}" data-i="${i}" data-val="hit"  aria-label="Game ${i+1} hit">✓</button>
+        <button class="cbtn miss ${g.result==='miss'?'on':''}" data-action="gameresult" data-w="${W}" data-i="${i}" data-val="miss" aria-label="Game ${i+1} missed">✗</button>
+      </div>
+      <button class="g-rm" data-action="removegame" data-w="${W}" data-i="${i}" title="Remove game" aria-label="Remove game ${i+1}">×</button>
+    </div>`).join('');
+
+  view.innerHTML = `
+    <div class="card">
+      <div class="row-head weeknav">
+        <div class="stepper">
+          <button class="icon-btn" data-action="week" data-dir="-1" ${W<=0?'disabled':''} aria-label="Previous week">‹</button>
+          <select id="weekSelG" data-action="weeksel" aria-label="Choose week">${weekOpts}</select>
+          <button class="icon-btn" data-action="week" data-dir="1" ${W>=state.totalWeeks-1?'disabled':''} aria-label="Next week">›</button>
+        </div>
+        <div>
+          <span class="weekpill">Week ${W+1}</span>
+          <span class="weekmeta">· ${gamesW.length} game${gamesW.length===1?'':'s'} logged</span>
+        </div>
+      </div>
+      <h2>Games played</h2>
+      <p class="sub">Add a row for each game in week ${W+1}, then tap <b style="color:var(--good)">✓ hit</b> or <b style="color:var(--bad)">✗ miss</b>. This is separate from the players’ scores.</p>
+      <div class="game-list">${rows || '<div class="empty">No games logged for this week yet — add one below.</div>'}</div>
+      <div class="btns"><button class="btn" data-action="addgame" data-w="${W}">+ Add game</button></div>
+      <div class="divider"></div>
+      <div class="game-summary">Season so far: <b>${totGames}</b> game${totGames===1?'':'s'} logged · <b style="color:var(--good)">${totHit} hit</b> · <b style="color:var(--bad)">${totMiss} missed</b></div>
+    </div>`;
+}
+
+/* ---- Full grid: everyone × every week (click a cell to cycle) ---- */
+function renderGrid(){
+  const W = state.totalWeeks, P = state.players.length;
+  const S = statsFor();
+
+  let head = '<tr><th class="name-cell">Player</th>';
+  for(let w=0; w<W; w++) head += `<th title="Week ${w+1}">${w+1}</th>`;
+  head += '<th class="tot">Acc</th></tr>';
+
+  let body='';
+  for(let p=0; p<P; p++){
+    body += `<tr><td class="name-cell" title="${esc(state.players[p])}">${esc(state.players[p])}</td>`;
+    for(let w=0; w<W; w++){
+      const v = state.results[p][w];
+      const cls = v==='hit' ? 'hit' : v==='miss' ? 'miss' : '';
+      const glyph = v==='hit' ? '✓' : v==='miss' ? '✗' : '';
+      const t = `${esc(state.players[p])} · Week ${w+1}`;
+      body += `<td class="cell ${cls}" data-action="cyclecell" data-p="${p}" data-w="${w}" title="${t}"><span class="dot">${glyph}</span></td>`;
+    }
+    const pct = Math.round(S[p].acc*100);
+    body += `<td class="tot" title="${S[p].hits} of ${S[p].played} correct">${pct}%<br><span style="color:var(--muted);font-weight:500">${S[p].hits}/${S[p].played}</span></td></tr>`;
+  }
+
+  view.innerHTML = `
+    <div class="card">
+      <div class="row-head">
+        <div><h2>Full grid</h2><p class="sub">Click any square to cycle: blank → ✓ → ✗ → blank. Scroll sideways for later weeks.</p></div>
+      </div>
+      <div class="scrollx"><table class="grid"><thead>${head}</thead><tbody>${body}</tbody></table></div>
+      <div class="legend">
+        <span class="k"><span class="sw" style="background:var(--good)"></span> Correct (✓)</span>
+        <span class="k"><span class="sw" style="background:var(--bad)"></span> Wrong (✗)</span>
+        <span class="k"><span class="sw" style="background:var(--track);border:1px solid var(--border)"></span> Not recorded</span>
+      </div>
+    </div>`;
+}
+
+/* ---- Manage: names, season, backup, reset ---- */
+function renderManage(){
+  const peRows = state.players.map((name,p)=>`
+    <div class="pe-row">
+      <span class="n">${p+1}</span>
+      <input type="text" value="${esc(name)}" data-action="rename" data-p="${p}" aria-label="Player ${p+1} name" />
+      <button class="rm" data-action="removeplayer" data-p="${p}" title="Remove player" ${state.players.length<=1?'disabled':''}>×</button>
+    </div>`).join('');
+
+  view.innerHTML = `
+    <div class="card">
+      <h2>Players</h2>
+      <p class="sub">Type your friends’ names. Changes save automatically. (${state.players.length} players)</p>
+      <div class="players-edit">${peRows}</div>
+      <div class="btns"><button class="btn" data-action="addplayer">+ Add player</button></div>
+    </div>
+
+    <div class="card">
+      <h2>Season</h2>
+      <div class="field" style="max-width:220px">
+        <label for="weeksInput">Number of game weeks</label>
+        <input id="weeksInput" type="number" min="1" max="60" value="${state.totalWeeks}" data-action="setweeks" />
+      </div>
+      <p class="hint">Default 38. Increasing keeps your data and adds blank weeks; decreasing trims the last weeks.</p>
+    </div>
+
+    <div class="card">
+      <h2>Backup &amp; restore</h2>
+      <p class="sub">Your data lives only in this browser. Export a file now and then so you never lose it.</p>
+      <div class="btns">
+        <button class="btn primary" data-action="export">⬇ Export backup (.json)</button>
+        <button class="btn" data-action="importclick">⬆ Import backup</button>
+        <input type="file" id="importFile" accept="application/json,.json" style="display:none" />
+      </div>
+      <div class="divider"></div>
+      <div class="btns">
+        <button class="btn ghost" data-action="demo">✨ Load sample results (preview)</button>
+        <button class="btn ghost" data-action="clearresults">Clear all results</button>
+      </div>
+      <div class="divider"></div>
+      <div class="danger-zone">
+        <h3>Danger zone</h3>
+        <p class="hint" style="margin-top:0">Erase everything (names + all results) and start fresh.</p>
+        <div class="btns"><button class="btn danger" data-action="resetall">Reset entire tracker</button></div>
+      </div>
+    </div>`;
+}
+
+/* ============================================================
+   4) EVENTS
+   ============================================================ */
+document.addEventListener('click', (e)=>{
+  const el = e.target.closest('[data-action]');
+  if(!el) return;
+  const a = el.dataset.action;
+
+  if(a==='tab'){
+    currentTab = el.dataset.tab; render();
+    view.classList.remove('swap'); void view.offsetWidth; view.classList.add('swap');
+  }
+
+  else if(a==='setcell'){
+    const p=+el.dataset.p, w=+el.dataset.w, val=el.dataset.val;
+    state.results[p][w] = (state.results[p][w]===val) ? null : val;
+    save(); renderRecord();
+  }
+  else if(a==='cyclecell'){
+    const p=+el.dataset.p, w=+el.dataset.w, cur=state.results[p][w];
+    state.results[p][w] = cur===null ? 'hit' : cur==='hit' ? 'miss' : null;
+    save(); renderGrid();
+  }
+  else if(a==='week'){
+    activeWeek = Math.max(0, Math.min(state.totalWeeks-1, activeWeek + (+el.dataset.dir)));
+    render();
+  }
+  else if(a==='addgame'){
+    state.games[+el.dataset.w].push({label:'', result:null});
+    save(); renderGames();
+  }
+  else if(a==='removegame'){
+    state.games[+el.dataset.w].splice(+el.dataset.i, 1);
+    save(); renderGames();
+  }
+  else if(a==='gameresult'){
+    const w=+el.dataset.w, i=+el.dataset.i, val=el.dataset.val, g=state.games[w][i];
+    if(g){ g.result = (g.result===val) ? null : val; save(); renderGames(); }
+  }
+  else if(a==='clearweek'){
+    for(let p=0;p<state.players.length;p++) state.results[p][activeWeek]=null;
+    save(); renderRecord();
+  }
+  else if(a==='addplayer'){
+    state.players.push('Player '+(state.players.length+1));
+    state.results.push(Array(state.totalWeeks).fill(null));
+    save(); renderManage();
+  }
+  else if(a==='removeplayer'){
+    const p=+el.dataset.p;
+    if(state.players.length>1 && confirm('Remove '+state.players[p]+'? Their results will be deleted.')){
+      state.players.splice(p,1); state.results.splice(p,1);
+      save(); renderManage();
+    }
+  }
+  else if(a==='export') exportBackup();
+  else if(a==='importclick') document.getElementById('importFile').click();
+  else if(a==='demo'){ if(confirm('Fill every week with random sample results? This overwrites current results (names are kept).')){ loadDemo(); } }
+  else if(a==='clearresults'){ if(confirm('Clear ALL recorded results? Names stay.')){ state.results = state.players.map(()=>Array(state.totalWeeks).fill(null)); save(); render(); } }
+  else if(a==='resetall'){ if(confirm('Reset EVERYTHING back to blank Player 1–13? This cannot be undone.')){ state = defaultState(); activeWeek=0; save(); render(); } }
+});
+
+document.addEventListener('input', (e)=>{
+  const el = e.target.closest('[data-action]');
+  if(!el) return;
+  const a = el.dataset.action;
+  if(a==='rename'){ state.players[+el.dataset.p] = el.value; save(); /* no re-render: keep focus */ }
+  else if(a==='setweeks'){
+    const W = clampInt(el.value,1,60,state.totalWeeks);
+    state.totalWeeks = W;
+    state.results = state.results.map(row=>{
+      const out=Array(W).fill(null);
+      for(let w=0; w<W; w++) out[w]=row[w]||null;
+      return out;
+    });
+    state.games = Array.from({length:W}, (_,w)=> state.games[w]||[]);
+    if(activeWeek>W-1) activeWeek=W-1;
+    save(); /* light: don't yank focus mid-typing */
+  }
+});
+document.addEventListener('change', (e)=>{
+  const el = e.target.closest('[data-action]');
+  if(!el) return;
+  if(el.dataset.action==='sort'){ state.sort=el.value; save(); renderLeaderboard(); }
+  else if(el.dataset.action==='weeksel'){ activeWeek=+el.value; render(); }
+});
+
+// season name (header input, always present)
+document.getElementById('seasonInput').addEventListener('input', (e)=>{ state.season=e.target.value; save(); });
+
+// theme toggle
+document.getElementById('themeBtn').addEventListener('click', ()=>{
+  state.theme = state.theme==='dark' ? 'light' : 'dark';
+  save(); render();
+});
+
+// import file
+document.addEventListener('change', (e)=>{
+  if(e.target.id!=='importFile') return;
+  const file = e.target.files[0]; if(!file) return;
+  const reader = new FileReader();
+  reader.onload = ()=>{
+    try{
+      const parsed = JSON.parse(reader.result);
+      state = normalize(parsed);
+      activeWeek = firstUnfinishedWeek();
+      save(); render();
+      alert('Backup imported ✓');
+    }catch(err){ alert('Sorry — that file could not be read as a valid backup.'); }
+  };
+  reader.readAsText(file);
+});
+
+/* ---- backup / demo ---- */
+function exportBackup(){
+  const blob = new Blob([JSON.stringify(state,null,2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const d = new Date();
+  const stamp = d.getFullYear()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0');
+  const a = document.createElement('a');
+  a.href=url; a.download='prediction-league-backup-'+stamp+'.json';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 1000);
+}
+function loadDemo(){
+  // random-ish results with per-player skill, for preview only
+  state.results = state.players.map((_,p)=>{
+    const skill = 0.35 + ((p*7)%10)/16;          // spread of abilities
+    return Array.from({length:state.totalWeeks}, (_,w)=>
+      w < (state.totalWeeks-3)                     // leave last few weeks blank
+        ? (Math.random()<skill ? 'hit' : 'miss')
+        : null);
+  });
+  save(); render();
+}
+
+/* ============================================================
+   5) GO
+   ============================================================ */
+render();
+</script>
+</body>
+</html>
